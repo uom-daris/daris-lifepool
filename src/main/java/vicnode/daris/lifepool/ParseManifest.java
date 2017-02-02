@@ -21,16 +21,29 @@ public class ParseManifest {
 	public static void main(String[] args) throws Throwable {
 
 		// Parse inputs
-		if (args == null || args.length != 2) {
+		if (args == null) { 
 			printUsage();
 			System.exit(1);
 		}
+		if (args.length!=2 && args.length != 3) {
+			printUsage();
+		}
+		//
 		String cid = args[0];
 		String path = args[1];
+		Boolean dropIfDICOMNull = true;
+		if (args.length==3) {
+		   dropIfDICOMNull = false;
+		}
+		System.out.println("Project ID = " + cid);
+		System.out.println("Path = " + path);
+		System.out.println("Keep If DICOM null = " + !dropIfDICOMNull);
 
 		// Open and read CSV file
 		File file = new File(path);
-		List<String> rows = readFile(file);
+		//		List<String> rows = readFile(file);
+		List<String> rows = fakeLaptopData();
+
 
 		// Validate format
 		validateManifest (rows);
@@ -47,7 +60,7 @@ public class ParseManifest {
 
 		// Produce list of filtered asset IDs
 		System.out.println("Find and filter");
-		List<String> assetIDs = filterManifest(cxn, rows, cid);
+		List<String> assetIDs = filterManifest(cxn, rows, cid, dropIfDICOMNull);
 		System.out.println("Found " + assetIDs.size() + " filtered DataSets");
 		for (String assetID : assetIDs) {
 			System.out.println("id,cid = " +assetID + ", " + idToCid(cxn,assetID));
@@ -58,12 +71,29 @@ public class ParseManifest {
 	}
 
 
+	private static List<String> fakeVicNodeData () {
+		ArrayList<String> rows = new ArrayList<String>();
+		rows.add("Accession ID, Image Type, Modality, Presentation Intent Type, Manufacturer, Institution, Series Description, Model Name, Acquisition Device Processing Description, View Position, Image Laterality");
+		rows.add("0000098SM1001, ==ORIGINAL, ==MG, ==FOR PRESENTATION,  ==Sectra Imtec AB, ==BreastScreen Victoria 218, ==ZZZ, ==L30, ==ABC, ==CC, ==L");
+		rows.add("0000054SM1203, ==DERIVED, ==MG, ==FOR PRESENTATION,  ==FUJIFILM Corporation, ==BREASTSCREEN Berwick, ==L CC, ==L30, ==L CC, ==L CC, ==L");
+		return rows;
+	}
+
+	private static List<String> fakeLaptopData () {
+		ArrayList<String> rows = new ArrayList<String>();
+		rows.add("Accession ID, Image Type, Modality, Presentation Intent Type, Manufacturer, Institution, Series Description, Model Name, Acquisition Device Processing Description, View Position, Image Laterality");
+		rows.add("0000071SM1101, ==DERIVED, ==MG, ==FOR PRESENTATION,  ==FUJIFILM Corporation, ==MDI FRANKSTONE, ==LEFT BREAST CC,, ==LEFT BREAST CC,, ==L");
+		return rows;
+	}
+
+
+
 	private static void printUsage() {
 
-		System.out.println("Usage: <DaRIS Project CID> <Manifest CSV file path>");
+		System.out.println("Usage: <DaRIS Project CID> <Manifest CSV file path> <keepDicomIfNull>");
 	} 
 
-	private static List<String> filterManifest (Connection cxn, List<String> rows, String pid) throws Throwable {
+	private static List<String> filterManifest (Connection cxn, List<String> rows, String pid, Boolean dropIfDICOMNull) throws Throwable {
 
 		// Cam has suggested that one accession ID may spread over several consecutive rows and the operators
 		// would be lined by an OR.  An alternative would be to allow fields per parameters to combine
@@ -89,7 +119,7 @@ public class ParseManifest {
 
 				// Trim off white space
 				for (int j=0; j< tokens.length; j++) {
-					
+
 					// If tokens are missing for a particular column set them to null for ease of use
 					if (tokens[j].isEmpty() || tokens[j].length()==0) {
 						if (j==0) {
@@ -97,7 +127,7 @@ public class ParseManifest {
 						}
 						tokens[j] = null;
 					} else {
-						
+
 						// Trim off white space
 						tokens[j] = tokens[j].trim();
 					}
@@ -105,7 +135,7 @@ public class ParseManifest {
 
 				// Filter DataSets for this row.
 				System.out.println("      Find assets for Accession No. " + tokens[0] + " and filter");
-				Collection<String> assets = findAndFilter (cxn, pid, tokens);
+				Collection<String> assets = findAndFilter (cxn, pid, tokens, dropIfDICOMNull);
 				if (assets!=null) {
 					assetIDs.addAll(assets);
 				}
@@ -122,7 +152,8 @@ public class ParseManifest {
 
 
 	/**
-	 * For the current row of the manifest, find and filter the DataSets
+	 * For the current row of the manifest, find and filter the DataSets. In this Method we drop
+	 * a DataSet if a parameter is non-null but its correposnding DICOM element is null.
 	 * 
 	 * @param cxn
 	 * @param pid
@@ -130,11 +161,11 @@ public class ParseManifest {
 	 * @return
 	 * @throws Throwable
 	 */
-	private static Collection<String> findAndFilter (Connection cxn, String pid, String[] tokens) throws Throwable {	
-		
+	private static Collection<String> findAndFilter (Connection cxn, String pid, String[] tokens, Boolean dropIfDICOMNull) throws Throwable {	
+
 		// Output list
 		ArrayList<String> keepIDs = new ArrayList<String>();
-		
+
 		// Accession NUmber
 		String accessionNo = tokens[0];
 
@@ -155,114 +186,65 @@ public class ParseManifest {
 			// Fetch the asset meta-data
 			XmlDoc.Element asset = AssetUtil.getMeta(cxn, id, null);
 			if (asset!=null) {
+				// Work through the expected parameter types. If the parameter token is null, then
+				// that means we don't use it to test with. If the parameter is provided, but the
+				// DICOM element is null, then we drop the DataSet (as we can't make the test).
+				// If there are multiple DICOM values, satisfying ant of them will cause the
+				// DataSet to be accepted (we OR them)
 
-				// Get the bit of metadata that we want
-				XmlDoc.Element meta = asset.element ("asset/meta/daris:dicom-dataset");
-				if (meta!=null) {
-
-					// FInd all the extracted DICOM elements
-					Collection<XmlDoc.Element> dicomElements = meta.elements("object/de");
-					if (dicomElements!=null) {
-
-						// The logic is that a DataSet is kept if the AND of all parameter ops is true
-						// Possibly flip the algorithm so if a parameter is specified but the DICOM element
-						// is missing, then don't keep the DataSet. At the moment, if the DICOM element
-						// is missing, its just not considered in the filtering.
-						Boolean keep = true;
-						System.out.println("      Iterating over DICOM " + dicomElements.size()  + " elements");
-						for (XmlDoc.Element dicomElement : dicomElements) {
-
-							// What element is this ?
-							String tag = dicomElement.value("@tag");
-							Collection<String> dicomValues = dicomElement.values("value");   // May be multiples...						
-							
-							// Tokens[] are:
-							// 0 Accession Number
-							// 1 Image Type (0008,0008)
-							// 2 DICOM modality (0008,0060)
-							// 3 Presentation Intent Type (0008,0068)
-							// 4 Manufacturer (0008,0070)
-							// 5 Institution (0008,0080)
-							// 6 Series Description (0008,103E)
-							// 7 Model Name (0008,1090)
-							// 8 Acquisition Device Processing Description (0018,1400)
-							// 9 View Position (0018,5101)
-							// 10 Image Laterality (0020,0062)			
-							
-							
-							// Compare the token and DICOM value
-							if (tag.equals("00080008")) {
-								// Image Type
-								if (!parseStringToken (tokens[1], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00080060")) {
-								// Modality
-								if (!parseStringToken (tokens[2], dicomValues)) {
-									keep = false;
-									break;
-								}					
-							} else if (tag.equals("00080068")) {
-								// Presentation Intent Type
-								if (!parseStringToken (tokens[3], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00080070")) {
-								// Manufacturer
-								if (!parseStringToken (tokens[4], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00080080")) {
-								// Institution Name
-								if (!parseStringToken (tokens[5], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("0008103E")) {
-								// Series Description
-								if (!parseStringToken (tokens[6], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00081090")) {
-								// Manufacturers model
-								if (!parseStringToken (tokens[7], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00181400")) {
-								// Acquisition Device Processing Description
-								if (!parseStringToken (tokens[8], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00185101")) {
-								// View Position
-								if (!parseStringToken (tokens[9], dicomValues)) {
-									keep = false;
-									break;
-								}
-							} else if (tag.equals("00200062")) {
-								// Image Laterality
-								if (!parseStringToken (tokens[10], dicomValues)) {
-									keep = false;
-									break;
-								}
-							}
-						}
-						if (keep) {
-							System.out.println("      Keeping this DataSet");
-							// Add asset to list
-							keepIDs.add(id);
-						} else {
-							System.out.println("      Not Keeping this DataSet");
-
-						}
-					}
+				// ImageType 
+				if (tokens[1]!=null) {
+					if (!testToken (asset, "00080008", tokens[1], dropIfDICOMNull)) break;
 				}
+
+				// DICOM modality
+				if (tokens[2]!=null) {
+					if (!testToken (asset, "00080060", tokens[2], dropIfDICOMNull)) break;
+				}
+
+				// Presentation Intent Type 
+				if (tokens[3]!=null) {
+					if (!testToken (asset, "00080068", tokens[3], dropIfDICOMNull)) break;
+				}
+
+				// Manufacturer
+				if (tokens[4]!=null) {
+					if (!testToken (asset, "00080070", tokens[4], dropIfDICOMNull)) break;
+				}
+
+				// Institution 
+				if (tokens[5]!=null) {
+					if (!testToken (asset, "00080080", tokens[5], dropIfDICOMNull)) break;
+				}
+
+				// Series Description
+				if (tokens[6]!=null) {
+					if (!testToken (asset, "0008103E", tokens[6], dropIfDICOMNull)) break;
+				}
+
+				// Model
+				if (tokens[7]!=null) {
+					if (!testToken (asset, "00081090", tokens[7], dropIfDICOMNull)) break;
+				}
+
+				// Acquisition Device Processing Description
+				if (tokens[8]!=null) {
+					if (!testToken (asset, "00181400", tokens[8], dropIfDICOMNull)) break;
+				}
+
+				// View Position
+				if (tokens[9]!=null) {
+					if (!testToken (asset, "00185101", tokens[9], dropIfDICOMNull)) break;
+				}
+
+				// Image Laterality
+				if (tokens[10]!=null) {
+					if (!testToken (asset, "00200062", tokens[10], dropIfDICOMNull)) break;
+				}
+
+
+				// If we get here, we keep the DataSet
+				keepIDs.add(id);
 			}
 		}
 
@@ -270,38 +252,48 @@ public class ParseManifest {
 		return keepIDs;
 	}
 
-	
-	
+
 	/**
-	 * The parameter consists of <op><value> where <op> can be == or !=
-	 * TBD We may allow multi op parameters in the future (so they would be ORed)
-	 *    <op><value> <op><value> ....
 	 * 
-	 * @param parameter
-	 * @param dicomValue
+	 * @param asset
+	 * @param tag
+	 * @param token
+	 * @param method
 	 * @return
 	 * @throws Throwable
 	 */
-	private static Boolean parseStringToken (String parameter, Collection<String> dicomValues) throws Throwable {
+	private static Boolean testToken (XmlDoc.Element asset, String tag, String token, Boolean dropIfDICOMNull) throws Throwable {
 
+		// Fetch the relevant DICOM element. If it is null, we can't test with it for this token
+		// parameter, so we can't keep the DataSet
+		XmlDoc.Element dicomElement = asset.element("asset/meta/daris:dicom-dataset/object/de[@tag='"+tag+"']");
 
-		// If a parameter field is empty, then that means we don't want to use that
-		// parameter for testing whether the DataSet should be kept or not.  So
-		// therefore we keep it by default.
-		if (parameter==null) return true;
+		if (dicomElement==null) {
+			if (dropIfDICOMNull) {
+				// A parameter is set - If the DICOM element is null drop the DataSet
+				return false;
+			} else {
+				// A parameter is set - If the DICOM element is don't consider this parameter for filtering (so keep it)
+				return true;
+			}
+		}
+
+		// Get the value(s)
+		Collection<String> dicomValues = dicomElement.values("value");   // May be multiples...	
 
 		// We OR the results for multiple DICOM values
 		Boolean keep = false;
 		for (String dicomValue : dicomValues) {	
-
-			// Filter out meaningless DICOM values
 			if (!(dicomValue.isEmpty()) && !(dicomValue.length()==0) && !dicomValue.equals(" ")) {
-				System.out.println("         Parsing parameter = " + parameter + " and DICOM value = " + dicomValue);
-				if (parseStringTokenForOneDICOMValue (parameter, dicomValue)) keep = true;
+				if (parseStringTokenForOneDICOMValue (token, dicomValue)) keep = true;
 			}
 		}
 		return keep;
 	}
+
+
+
+
 
 
 	private static Boolean parseStringTokenForOneDICOMValue (String parameter, String dicomValue) throws Throwable {
