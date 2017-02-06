@@ -123,7 +123,7 @@ public class ParseManifest {
 		// from wrapper script (e.g. mf.port). Token must be made like this:
 		/*
 secure.identity.token.create  :app <token application string> :description <description>
- :use-count 10 :role -type role daris:pssd.model.user :role -type role daris:pssd.subject.create :max-token-length 20 
+ :role -type role daris:pssd.model.user :role -type role daris:pssd.subject.create :max-token-length <max length>
  :role -type role vicnode.daris:pssd.model.user :role -type role user
  :perm < :access ADMINISTER  :resource -type role:namespace daris > 
  :perm < :access ADMINISTER  :resource -type role:namespace vicnode.daris >  
