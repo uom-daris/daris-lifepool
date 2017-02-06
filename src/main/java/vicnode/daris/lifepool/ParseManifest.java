@@ -175,7 +175,7 @@ secure.identity.token.create  :app <token application string> :description <desc
 		System.out.println("   -keep    : A parameter has been set - if the corresponding DICOM element is null don't consider this parameter for filtering (so keep the DataSet).");
 		System.out.println("              The default behaviour is that the DataSet is dropped when the DICOM element is null.\n");
 		System.out.println("   -debug   : Turn on  extra printing.");
-		System.out.println("   -destroy : destroys the secure token (rendering the URL defunct. Used when testing");
+		System.out.println("   -destroy : destroys the secure token (rendering the URL defunct. Used when testing).");
 	} 
 
 	private static List<String> filterManifest (Connection cxn, List<String> rows, Options ops) throws Throwable {
