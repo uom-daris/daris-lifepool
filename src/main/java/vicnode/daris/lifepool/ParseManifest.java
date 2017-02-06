@@ -129,7 +129,8 @@ secure.identity.token.create  :app <token application string> :description <desc
  :perm < :access ADMINISTER  :resource -type role:namespace vicnode.daris >  
  :perm < :access ACCESS :resource -type service user.self.describe > 
  :perm < :access MODIFY :resource -type service secure.identity.token.destroy >
- :role -type role daris:pssd.project.admin.<project CID>		
+ :role -type role daris:pssd.project.admin.<project CID>	
+ :to < a date>	
 		 */
 		Connection cxn = ClientConnection.createServerConnection();
 		ClientConnection.connect(cxn, TOKEN_APP, false);
