@@ -18,6 +18,8 @@ import arc.xml.XmlDoc;
 import arc.xml.XmlStringWriter;
 
 public class ParseManifest {
+	
+	// See https://docs.google.com/document/d/1skiNkR8lxx_cW9pCW2OEsZn30wYrkLr8n4LR1OgUmMU/edit?usp=sharing
 
 	// Number of columns in CSV file
 	private static int NCOLUMNS = 11;
