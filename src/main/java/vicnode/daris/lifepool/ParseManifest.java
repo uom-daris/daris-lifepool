@@ -8,6 +8,7 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Vector;
 
 import nig.mf.client.util.AssetUtil;
 import nig.mf.client.util.ClientConnection;
@@ -18,7 +19,7 @@ import arc.xml.XmlDoc;
 import arc.xml.XmlStringWriter;
 
 public class ParseManifest {
-	
+
 	// See https://docs.google.com/document/d/1skiNkR8lxx_cW9pCW2OEsZn30wYrkLr8n4LR1OgUmMU/edit?usp=sharing
 
 	// Number of columns in CSV file
@@ -34,6 +35,14 @@ public class ParseManifest {
 
 	// This string must match argument "app" when generating the secure identity token
 	private static final String TOKEN_APP = "LifePool-Parser";
+
+	// These are the DICOM tags for the elements of interest in the correct order (the same order
+	// as the columns of the manifest file)
+	private static final String[] DICOM_ELEMENT_TAGS={"00080050", "00080008", "00080060", "00080068", "00080070", "00080080",
+		"0008103E", "00081090", "00181400", "00185101", "00200062"};
+	private static final String[] DICOM_ELEMENT_NAMES = {"Accession Number", "ImageType", "Modality", "Presentation Intent Type", 
+		"Manufacturer", "Institution", "Series Description", "Model", "Acquisition Device Processing Description", 
+		"View Position", "Image Laterality"};
 
 
 
@@ -96,7 +105,7 @@ public class ParseManifest {
 			printUsage();
 			throw new Exception("You must supply the argument " + PATH_ARG);
 		}
-		
+
 		// Convert date count (days) to date
 		convertDate (ops);
 
@@ -120,18 +129,7 @@ public class ParseManifest {
 		}
 
 		// Open connection to server using domain/user or token using system properties passed in
-		// from wrapper script (e.g. mf.port). Token must be made like this:
-		/*
-secure.identity.token.create  :app <token application string> :description <description>
- :role -type role daris:pssd.model.user :role -type role daris:pssd.subject.create :max-token-length <max length>
- :role -type role vicnode.daris:pssd.model.user :role -type role user
- :perm < :access ADMINISTER  :resource -type role:namespace daris > 
- :perm < :access ADMINISTER  :resource -type role:namespace vicnode.daris >  
- :perm < :access ACCESS :resource -type service user.self.describe > 
- :perm < :access MODIFY :resource -type service secure.identity.token.destroy >
- :role -type role daris:pssd.project.admin.<project CID>	
- :to < a date>	
-		 */
+		// from wrapper script (e.g. mf.port). 
 		Connection cxn = ClientConnection.createServerConnection();
 		ClientConnection.connect(cxn, TOKEN_APP, false);
 
@@ -139,18 +137,20 @@ secure.identity.token.create  :app <token application string> :description <desc
 		// Produce list of filtered asset IDs
 		System.out.println("\n*** Find and filter data");
 		List<String> assetIDs = filterManifest(cxn, rows, ops);
-		System.out.println("*** Found " + assetIDs.size() + " filtered DataSets");
-		if (ops.debug) {
+
+		System.out.println("\n*** Found " + assetIDs.size() + " filtered DataSets");
+		if (ops.debug && assetIDs.size()>0) {
 			System.out.println("   Data Set IDs");
 			for (String assetID : assetIDs) {
-				System.out.println("id,cid = " +assetID + ", " + idToCid(cxn,assetID));
+				System.out.println("   id,cid = " +assetID + ", " + idToCid(cxn,assetID));
 			}
 		}
 
 
 		// Generate the shareable link. Caller must have authority to do so.
-		generateShareableLink (cxn, assetIDs, ops);
-
+		if (assetIDs.size()>0) {
+			generateShareableLink (cxn, assetIDs, ops);
+		}
 
 		// CLose connection to server
 		cxn.close();
@@ -176,7 +176,6 @@ secure.identity.token.create  :app <token application string> :description <desc
 		System.out.println("   -keep    : A parameter has been set - if the corresponding DICOM element is null don't consider this parameter for filtering (so keep the DataSet).");
 		System.out.println("              The default behaviour is that the DataSet is dropped when the DICOM element is null.\n");
 		System.out.println("   -debug   : Turn on  extra printing.");
-		System.out.println("   -destroy : destroys the secure token (rendering the URL defunct. Used when testing).");
 	} 
 
 	private static List<String> filterManifest (Connection cxn, List<String> rows, Options ops) throws Throwable {
@@ -201,31 +200,24 @@ secure.identity.token.create  :app <token application string> :description <desc
 			} else {
 
 				// Tokenize the row
-				String[] tokens = row.split(",");
-				// System.out.println("tokens length=" + tokens.length);
-
-				// Trim off white space
-				for (int j=0; j< tokens.length; j++) {
-
-					// If tokens are missing for a particular column set them to null for ease of use
-					if (tokens[j].isEmpty() || tokens[j].length()==0) {
-						if (j==0) {
-							throw new Exception ("The Accession Number is missing for row " + i + " of the manifest file: " + row);
-						}
-						tokens[j] = null;
-					} else {
-
-						// Trim off white space
-						tokens[j] = tokens[j].trim();
+				Vector<String> tokens= parseRow(row, ops);
+				if (tokens.size()!=NCOLUMNS) {
+					throw new Exception("Parsed row " + row + " into only " + tokens.size() + " tokens instead of " + NCOLUMNS);
+				}
+				System.out.println("   Accession Number " + tokens.get(0));
+				if (ops.debug) {
+					System.out.println("tokens length=" + tokens.size());
+					for (int j=0; j<tokens.size();j++) {
+						System.out.println ("'" + tokens.get(j) +"' ");
 					}
 				}
 
 				// Filter DataSets for this row.
-				if (ops.debug) System.out.println("      Find assets for Accession No. " + tokens[0] + " and filter");
 				Collection<String> assets = findAndFilter (cxn, ops.cid, tokens,  ops);
+				System.out.println("      Found " + assets.size() + " DataSets after filtering");
 				if (assets!=null) {
 					assetIDs.addAll(assets);
-				}
+				} 
 			}
 			i++;
 		}
@@ -235,7 +227,117 @@ secure.identity.token.create  :app <token application string> :description <desc
 
 
 
+	private static Vector<String> parseRow(String row, Options ops) throws Throwable {
 
+		// The current algorithm seaches for values between " " and then works 
+		// back to find the operator.  It might be more robust to 
+		// search for the next operator patterm (== and !=) and then
+		// work forwards to find the "<value>".  This will probably be easier
+		// to handle multiple operator values (when we enhance) i.e.
+		// , =="ABC"||!="XYZ", =="LEFT" and be more robust to white space.
+		// At the moment we only handle , =="ABC", =="XYZ", ...
+
+		// <Accession number>,<op>"<value>",<op>"<value>",....
+		// <op>"<value>",<op><value>,....
+		// 
+		Vector<String> tokens = new Vector<String>();
+		int n = row.length();
+		if (ops.debug) {
+			System.out.println("length="+n);
+		}
+
+		// Fetch the Accession Number which is first with no operator
+		int idx = row.indexOf(",");
+		String t = row.substring(0, idx);
+		tokens.add(removeEquals(t));
+		if (ops.debug) {
+			System.out.println("Accession number="+tokens.get(0));
+		}
+
+		// Now the rest 
+		boolean more = true;
+		// start indexes into row
+		int start = idx;
+		//
+
+		while (more) {		
+
+			// Next section of row
+			t = row.substring(start);
+			if (ops.debug) {
+				System.out.println("next section='"+t + "'");
+			}
+
+			// Is the next char a "," ? If so, this token is missing
+			if (t.substring(0,2).equals(",,")) {
+				tokens.add(null);
+				if (ops.debug) {
+					System.out.println("Extracted null token");
+				}
+				start += 1;
+			} else {
+
+				// OUr next section will look like e.g.
+				// ,=="DERIVED\PRIMARY\LEFT",=="FOR PRESENTATION",=="MG",=="SIEMENS" ...
+				// ,<op><"<par>"
+
+				// FInd start "
+				int firstEq = t.indexOf("\"");
+
+				// FInd end "
+				int lastEq = t.indexOf("\"", firstEq+1);
+				if (ops.debug) {
+					System.out.println("local first,last="+firstEq + " " + lastEq);
+				}
+
+				// Make these indices index into row rather than a substring
+				firstEq += start;
+				lastEq += start;
+				if (ops.debug) {
+					System.out.println("global first,last="+firstEq + " " + lastEq);
+				}
+
+
+				// Extract the token being the <op> and the <par> without ""
+				String token = row.substring(firstEq-2,firstEq) + row.substring(firstEq+1,lastEq);
+				if (ops.debug) {
+					System.out.println("Extracted token = '"+ token.trim() + "'");
+				}
+				tokens.add(token.trim());
+
+				//
+				start = lastEq + 1;
+			}
+			if (start>n-1) more = false;
+		}
+		return tokens;
+
+	}
+
+	/**
+	 * Remove leading and trailing " from string
+	 * @param t
+	 * @return
+	 * @throws Throwable
+	 */
+
+	private static String removeEquals (String t) throws Throwable {
+
+		// Java substring(i1,i2) gives string from i1 to i2-1
+
+		int n = t.length();
+		int start = 0;
+		if (t.substring(0,1).equals("\"")) {
+			start = 1;
+		}
+
+		//
+		int end = n;
+		if (t.substring(n-1,n).equals("\"")) {
+			end = n-1;		
+		}
+		return t.substring(start,end);		
+	}
 
 
 	/**
@@ -248,18 +350,19 @@ secure.identity.token.create  :app <token application string> :description <desc
 	 * @return
 	 * @throws Throwable
 	 */
-	private static Collection<String> findAndFilter (Connection cxn, String pid, String[] tokens, Options ops) throws Throwable {	
+	private static Collection<String> findAndFilter (Connection cxn, String pid, Vector<String> tokens, Options ops) throws Throwable {	
 
 		// Output list
 		ArrayList<String> keepIDs = new ArrayList<String>();
 
 		// Accession NUmber
-		String accessionNo = tokens[0];
+		String accessionNo = tokens.get(0);
 
 		// FInd assets with the given accession ID
 		XmlStringWriter w = new XmlStringWriter();
 		String where = "cid starts with '" + pid + "' and model='om.pssd.dataset' and ";
-		where += "xpath(daris:dicom-dataset/object/de[@tag='00080050']/value)='" + accessionNo + "'";			
+		String tag = DICOM_ELEMENT_TAGS[0];
+		where += "xpath(daris:dicom-dataset/object/de[@tag='"+tag+"']/value)='" + accessionNo + "'";			
 		w.add("where", where);
 		XmlDoc.Element r = cxn.execute("asset.query", w.document());
 		Collection<String> ids = r.values("id");
@@ -276,62 +379,30 @@ secure.identity.token.create  :app <token application string> :description <desc
 				// Work through the expected parameter types. If the parameter token is null, then
 				// that means we don't use it to test with. If the parameter is provided, but the
 				// DICOM element is null, then we drop the DataSet (as we can't make the test).
-				// If there are multiple DICOM values, satisfying ant of them will cause the
-				// DataSet to be accepted (we OR them)
+				// There is an option (-keep) to change this algorithm so that if a parameter
+				// is specified, but the DICOM meta-data are null, then don't consider that
+				// parameter (keep the DataSet).
+				//
+				// There may be multiple parameter values (e.g. ImageType).  All of them must
+				// be satisfied by DICOM values for the DataSet to be kept.
 
-				// ImageType 
-				if (tokens[1]!=null) {
-					if (!testToken (asset, "00080008", tokens[1], ops.keep)) break;
+				Boolean keep = true;
+				for (int i=1;i<DICOM_ELEMENT_TAGS.length; i++) {   // 0 already consumed with Accession Number
+					String t = tokens.get(i);
+					if (t!=null) {
+						if (!testToken (asset, DICOM_ELEMENT_TAGS[i], t, ops)) {
+							keep = false;
+							break;
+						}
+					} else {
+						if (ops.debug) {
+							System.out.println("         For DICOM element name " + DICOM_ELEMENT_NAMES[i] + " tokens["+i+"] is null");
+						}
+					}
 				}
 
-				// DICOM modality
-				if (tokens[2]!=null) {
-					if (!testToken (asset, "00080060", tokens[2], ops.keep)) break;
-				}
-
-				// Presentation Intent Type 
-				if (tokens[3]!=null) {
-					if (!testToken (asset, "00080068", tokens[3], ops.keep)) break;
-				}
-
-				// Manufacturer
-				if (tokens[4]!=null) {
-					if (!testToken (asset, "00080070", tokens[4], ops.keep)) break;
-				}
-
-				// Institution 
-				if (tokens[5]!=null) {
-					if (!testToken (asset, "00080080", tokens[5], ops.keep)) break;
-				}
-
-				// Series Description
-				if (tokens[6]!=null) {
-					if (!testToken (asset, "0008103E", tokens[6], ops.keep)) break;
-				}
-
-				// Model
-				if (tokens[7]!=null) {
-					if (!testToken (asset, "00081090", tokens[7], ops.keep)) break;
-				}
-
-				// Acquisition Device Processing Description
-				if (tokens[8]!=null) {
-					if (!testToken (asset, "00181400", tokens[8],  ops.keep)) break;
-				}
-
-				// View Position
-				if (tokens[9]!=null) {
-					if (!testToken (asset, "00185101", tokens[9], ops.keep)) break;
-				}
-
-				// Image Laterality
-				if (tokens[10]!=null) {
-					if (!testToken (asset, "00200062", tokens[10], ops.keep)) break;
-				}
-
-
-				// If we get here, we keep the DataSet
-				keepIDs.add(id);
+				// Add the DataSet to the kept list if appropriate
+				if (keep) keepIDs.add(id);
 			}
 		}
 		//
@@ -349,13 +420,13 @@ secure.identity.token.create  :app <token application string> :description <desc
 	 * @return
 	 * @throws Throwable
 	 */
-	private static Boolean testToken (XmlDoc.Element asset, String tag, String token, Boolean keep) throws Throwable {
+	private static Boolean testToken (XmlDoc.Element asset, String tag, String token, Options ops) throws Throwable {
 
 		// Fetch the relevant DICOM element.
 		XmlDoc.Element dicomElement = asset.element("asset/meta/daris:dicom-dataset/object/de[@tag='"+tag+"']");
 
 		if (dicomElement==null) {
-			if (keep) {
+			if (ops.keep) {
 				// A parameter is set - if the DICOM element is null don't consider this parameter for filtering (so keep the DataSet)
 				return true;
 			} else {
@@ -364,17 +435,47 @@ secure.identity.token.create  :app <token application string> :description <desc
 			}
 		}
 
-		// Get the value(s)
+		// See if the token contains multiple values to be compared against those in the
+		// DICOM header.  Multiple values are separated by \
+		String op = token.substring(0,2);
+		String val = token.substring(2);
+		String[] vals = val.split("\\\\");	     // It's a lot to get just one \ !
+		if (ops.debug) {
+			System.out.println("      Parsed " + val + " into " + vals.length + " values");
+		}
+
+
+		// Get the DICOM value(s)
 		Collection<String> dicomValues = dicomElement.values("value");   // May be multiples...	
 
-		// We OR the results for multiple DICOM values
-		Boolean keep2 = false;
-		for (String dicomValue : dicomValues) {	
-			if (!(dicomValue.isEmpty()) && !(dicomValue.length()==0) && !dicomValue.equals(" ")) {
-				if (parseStringTokenForOneDICOMValue (token, dicomValue)) keep2 = true;
+		// All parameter values must be found in the DICOM.
+		for (int i=0; i<vals.length; i++) {
+			if (ops.debug) {
+				System.out.println("     Testing parameter value " + vals[i]);
 			}
+			Boolean found = false;
+			for (String dicomValue : dicomValues) {	
+				if (ops.debug) {
+					System.out.println("        Testing against DICOM value " + dicomValue);
+				}
+				// Excluded meaningless DICOM values
+				if (!(dicomValue.isEmpty()) && !(dicomValue.length()==0) && !dicomValue.equals(" ")) {
+					if (parseStringTokenForOneDICOMValue (vals[i], op, dicomValue)) {
+						found = true;
+						break;
+					}
+				} else {
+					if (ops.debug) {
+						System.out.println("     DICOM value is meaningless (null/empty)");
+
+					}
+				}
+			}
+
+			// We could not find this parameter value in the DICOM values so bug out.
+			if (!found) return false;
 		}
-		return keep2;
+		return true;
 	}
 
 
@@ -382,16 +483,13 @@ secure.identity.token.create  :app <token application string> :description <desc
 
 
 
-	private static Boolean parseStringTokenForOneDICOMValue (String parameter, String dicomValue) throws Throwable {
-		// Parse the parameter : <op><value> where <op> = '==' or '!='
-		String op = parameter.substring(0,2);
-		String val = parameter.substring(2);
+	private static Boolean parseStringTokenForOneDICOMValue (String parVal, String op, String dicomValue) throws Throwable {
 		if (op.equals("==")) {
-			return val.equals(dicomValue);
+			return parVal.equals(dicomValue);
 		} else if (op.equals("!=")) {
-			return !(val.equals(dicomValue));
+			return !(parVal.equals(dicomValue));
 		} else {
-			throw new Exception ("Can't parse parameter '" + parameter +"'");
+			throw new Exception ("Can't parse parameter '" + op + parVal + "'");
 		}
 	}
 
@@ -435,8 +533,10 @@ secure.identity.token.create  :app <token application string> :description <desc
 		String row = rows.get(0);
 		String[] tokens = row.split(",");
 		if (tokens.length != NCOLUMNS) {
-			throw new Exception ("Error parsing CSV file, wrong number of columns - should be " + NCOLUMNS);
+			throw new Exception ("Error parsing CSV file, wrong number of columns (" + tokens.length + ") - should be " + NCOLUMNS);
 		}
+		int n = rows.size() - 1;
+		System.out.println("*** There are " + n + " image rows to process");
 
 		// I could also make sure all the column names are correct, but I don't currently
 		// use them. The columns are assumed in the correct order.
@@ -495,9 +595,7 @@ secure.identity.token.create  :app <token application string> :description <desc
 			w = new XmlStringWriter();
 			w.add ("token", token.value());
 			cxn.execute("secure.identity.token.destroy", w.document());
-			if (ops.debug) {
-				System.out.println("*** Destroyed token with actor id " + actorID);
-			}
+			System.out.println("*** Destroyed token with actor id " + actorID);
 		}
 
 		// Now generate a shareable link. Refetch server parameters.
