@@ -229,16 +229,15 @@ public class ParseManifest {
 
 	private static Vector<String> parseRow(String row, Options ops) throws Throwable {
 
-		// The current algorithm seaches for values between " " and then works 
+		// The current algorithm searches for values between " " and then works 
 		// back to find the operator.  It might be more robust to 
-		// search for the next operator patterm (== and !=) and then
+		// search for the next operator pattern (== and !=) and then
 		// work forwards to find the "<value>".  This will probably be easier
 		// to handle multiple operator values (when we enhance) i.e.
 		// , =="ABC"||!="XYZ", =="LEFT" and be more robust to white space.
 		// At the moment we only handle , =="ABC", =="XYZ", ...
 
 		// <Accession number>,<op>"<value>",<op>"<value>",....
-		// <op>"<value>",<op><value>,....
 		// 
 		Vector<String> tokens = new Vector<String>();
 		int n = row.length();
@@ -313,7 +312,8 @@ public class ParseManifest {
 		return tokens;
 
 	}
-
+	
+	
 	/**
 	 * Remove leading and trailing " from string
 	 * @param t
