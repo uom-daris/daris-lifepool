@@ -32,6 +32,7 @@ public class ParseManifest {
 	public static final String DATE_ARG = "-count";           // Days before link expires
 	public static final String DEBUG_ARG = "-debug";
 	public static final String DESTROY_ARG = "-destroy";
+	public static final String NOLINK_ARG = "-no-link";
 
 	// This string must match argument "app" when generating the secure identity token
 	private static final String TOKEN_APP = "LifePool-Parser";
@@ -55,6 +56,7 @@ public class ParseManifest {
 		public String date = null;
 		public Boolean debug = false;
 		public Boolean destroy = false;
+		public Boolean noLink = false;
 		//
 		public void print () {
 			System.out.println("ParseManifest Parameters");
@@ -63,6 +65,7 @@ public class ParseManifest {
 			System.out.println("                   = " + keep);
 			System.out.println("Date Count (days)  = " + dateCount + " which is " + date);
 			System.out.println("debug              = " + debug);
+			System.out.println("no-link            = " + noLink);
 			System.out.println("destroy (token)    = " + destroy);
 			System.out.println("");
 		}
@@ -90,6 +93,8 @@ public class ParseManifest {
 				ops.debug = true;
 			} else if (args[i].equalsIgnoreCase(DESTROY_ARG)) {
 				ops.destroy = true;
+			} else if (args[i].equalsIgnoreCase(NOLINK_ARG)) {
+				ops.noLink = true;
 			} else {
 				ops.print();
 				System.err.println("ParseManifest: error: unexpected argument = '" + args[i] + "'");
@@ -148,8 +153,8 @@ public class ParseManifest {
 
 
 		// Generate the shareable link. Caller must have authority to do so.
-		if (assetIDs.size()>0) {
-			generateShareableLink (cxn, assetIDs, ops);
+		if (!ops.noLink && assetIDs.size()>0) {
+	       generateShareableLink (cxn, assetIDs, ops);
 		}
 
 		// CLose connection to server
@@ -178,7 +183,9 @@ public class ParseManifest {
 		System.out.println("   -debug   : Turn on  extra printing.");
 	} 
 
+	
 	private static List<String> filterManifest (Connection cxn, List<String> rows, Options ops) throws Throwable {
+
 
 		// Cam has suggested that one accession ID may spread over several consecutive rows and the operators
 		// would be lined by an OR.  An alternative would be to allow fields per parameters to combine
@@ -200,7 +207,7 @@ public class ParseManifest {
 			} else {
 
 				// Tokenize the row
-				Vector<String> tokens= parseRow(row, ops);
+				Vector<String> tokens= parseRow (row, ops);
 				if (tokens.size()!=NCOLUMNS) {
 					throw new Exception("Parsed row " + row + " into only " + tokens.size() + " tokens instead of " + NCOLUMNS);
 				}
@@ -211,13 +218,16 @@ public class ParseManifest {
 						System.out.println ("'" + tokens.get(j) +"' ");
 					}
 				}
-
+				
 				// Filter DataSets for this row.
 				Collection<String> assets = findAndFilter (cxn, ops.cid, tokens,  ops);
-				System.out.println("      Found " + assets.size() + " DataSets after filtering");
 				if (assets!=null) {
+					System.out.println("      Found " + assets.size() + " DataSets after filtering");
 					assetIDs.addAll(assets);
-				} 
+				} else {
+					System.out.println("      Found no DataSets after filtering");
+
+				}
 			}
 			i++;
 		}
@@ -227,7 +237,17 @@ public class ParseManifest {
 
 
 
-	private static Vector<String> parseRow(String row, Options ops) throws Throwable {
+	
+	
+	/**
+	 * 
+	 * @param row
+	 * @param ops
+	 * @return a Vector of tokens of form <op>'<value>'.  tokens may be null if missing.
+	 * @throws Throwable
+	 */
+	
+	private static Vector<String> parseRow (String row, Options ops) throws Throwable {
 
 		// The current algorithm searches for values between " " and then works 
 		// back to find the operator.  It might be more robust to 
@@ -277,7 +297,7 @@ public class ParseManifest {
 			} else {
 
 				// OUr next section will look like e.g.
-				// ,=="DERIVED\PRIMARY\LEFT",=="FOR PRESENTATION",=="MG",=="SIEMENS" ...
+				// ,"=='DERIVED\PRIMARY\\LEFT'","=='FOR PRESENTATION'","=='MG',"=='SIEMENS" ...
 				// ,<op><"<par>"
 
 				// FInd start "
@@ -297,8 +317,8 @@ public class ParseManifest {
 				}
 
 
-				// Extract the token being the <op> and the <par> without ""
-				String token = row.substring(firstEq-2,firstEq) + row.substring(firstEq+1,lastEq);
+				// Extract the token being the <op>'<value>'  in between the " "
+				String token = row.substring(firstEq+1,lastEq);
 				if (ops.debug) {
 					System.out.println("Extracted token = '"+ token.trim() + "'");
 				}
@@ -367,11 +387,12 @@ public class ParseManifest {
 		XmlDoc.Element r = cxn.execute("asset.query", w.document());
 		Collection<String> ids = r.values("id");
 		if (ids==null) return null;
-		if (ops.debug) System.out.println("         Found " + ids.size() + " DataSets to filter");
+		System.out.println("      Found " + ids.size() + " DataSets to filter");
 
 		// Now filter based on the imaging parameters
 		for (String id : ids) {
-			if (ops.debug) System.out.println("            Processing DataSet " + idToCid(cxn, id));
+			String cid = idToCid(cxn, id);
+			if (ops.debug) System.out.println("            Processing DataSet " + cid);
 
 			// Fetch the asset meta-data
 			XmlDoc.Element asset = AssetUtil.getMeta(cxn, id, null);
@@ -391,6 +412,7 @@ public class ParseManifest {
 					String t = tokens.get(i);
 					if (t!=null) {
 						if (!testToken (asset, DICOM_ELEMENT_TAGS[i], t, ops)) {
+							if (ops.debug) System.out.println("               Failed filtering for tag name " + DICOM_ELEMENT_NAMES[i]);
 							keep = false;
 							break;
 						}
@@ -402,7 +424,13 @@ public class ParseManifest {
 				}
 
 				// Add the DataSet to the kept list if appropriate
-				if (keep) keepIDs.add(id);
+				if (keep) {
+					System.out.println("         Keeping DataSet" + cid);
+					keepIDs.add(id);
+				} else {
+					System.out.println("         Dropping DataSet" + cid);
+
+				}
 			}
 		}
 		//
@@ -415,7 +443,7 @@ public class ParseManifest {
 	 * 
 	 * @param asset
 	 * @param tag
-	 * @param token
+	 * @param token of the form <op>'<value>'
 	 * @param method
 	 * @return
 	 * @throws Throwable
@@ -435,11 +463,16 @@ public class ParseManifest {
 			}
 		}
 
-		// See if the token contains multiple values to be compared against those in the
-		// DICOM header.  Multiple values are separated by \
-		String op = token.substring(0,2);
-		String val = token.substring(2);
-		String[] vals = val.split("\\\\");	     // It's a lot to get just one \ !
+		// Extract the <op> and the <value> with single quotes removed
+		// Java substring(i1,i2) gives string from i1 to i2-1
+		int firstQuote = token.indexOf("'");
+		int lastQuote = token.lastIndexOf("'");	
+		String op = token.substring(0,firstQuote);
+		String val = token.substring(firstQuote+1,lastQuote);
+
+		// Convert DICOM value, which may have multiple items separated by \ to
+		// an array.  The + means handle \\ (drop)
+		String[] vals = val.split("\\\\+");	     // It's a lot to get just one \ !
 		if (ops.debug) {
 			System.out.println("      Parsed " + val + " into " + vals.length + " values");
 		}
