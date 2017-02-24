@@ -33,6 +33,7 @@ public class ParseManifest {
 	public static final String DEBUG_ARG = "-debug";
 	public static final String DESTROY_ARG = "-destroy";
 	public static final String NOLINK_ARG = "-no-link";
+	public static final String LAYOUT_ARG = "-layout";
 
 	// This string must match argument "app" when generating the secure identity token
 	private static final String TOKEN_APP = "LifePool-Parser";
@@ -44,6 +45,9 @@ public class ParseManifest {
 	private static final String[] DICOM_ELEMENT_NAMES = {"Accession Number", "ImageType", "Modality", "Presentation Intent Type", 
 		"Manufacturer", "Institution", "Series Description", "Model", "Acquisition Device Processing Description", 
 		"View Position", "Image Laterality"};
+	
+	// Layouts (really should use an enum...)
+	private static final String[] layouts = {"standard", "accession"};
 
 
 
@@ -57,6 +61,7 @@ public class ParseManifest {
 		public Boolean debug = false;
 		public Boolean destroy = false;
 		public Boolean noLink = false;
+		public String layout = "accession";
 		//
 		public void print () {
 			System.out.println("ParseManifest Parameters");
@@ -64,6 +69,7 @@ public class ParseManifest {
 			System.out.println("CID                = " + cid);
 			System.out.println("                   = " + keep);
 			System.out.println("Date Count (days)  = " + dateCount + " which is " + date);
+			System.out.println("layout             = " + layout);
 			System.out.println("debug              = " + debug);
 			System.out.println("no-link            = " + noLink);
 			System.out.println("destroy (token)    = " + destroy);
@@ -85,6 +91,13 @@ public class ParseManifest {
 				ops.path = args[++i];
 			} else if (args[i].equalsIgnoreCase(CID_ARG)) {
 				ops.cid = args[++i];
+			} else if (args[i].equalsIgnoreCase(LAYOUT_ARG)) {
+				for (int j=0;j<layouts.length;j++) {
+					if (!(args[i].equals(layouts[j]))) {
+						throw new Exception("Illegal layout value");
+					}
+				}
+				ops.layout = args[++i];
 			} else if (args[i].equalsIgnoreCase(DATE_ARG)) {
 				ops.dateCount = args[++i];
 			} else if (args[i].equalsIgnoreCase(KEEPDICOM_ARG)) {
@@ -180,6 +193,9 @@ public class ParseManifest {
 		System.out.println("   -count   : The number of days that the shareable link should remain active for (default 14).");
 		System.out.println("   -keep    : A parameter has been set - if the corresponding DICOM element is null don't consider this parameter for filtering (so keep the DataSet).");
 		System.out.println("              The default behaviour is that the DataSet is dropped when the DICOM element is null.\n");
+		System.out.println("   -layout  : Select the download layout pattern: 'standard' (data model), 'accession' (default - accession number as parent folder)");
+		System.out.println("   -no-link : Don't generate the shareable link");
+		System.out.println("   -destroy : Destroy the token generated with the shareable link (for testing)");
 		System.out.println("   -debug   : Turn on  extra printing.");
 	} 
 
@@ -587,6 +603,14 @@ public class ParseManifest {
 		w.add("role", new String[] {"type", "role" }, "vicnode.daris:pssd.model.user");  // vicnode.daris package
 		w.add("role", new String[] {"type", "role" }, guestRole);                   // LifePool project
 		w.add("role", new String[] {"type", "role"}, "user");                       // ACL on root namespace on VicNode system
+		// layout
+		if ((ops.layout).equals("standard")) {
+			// Nothing to do. The standard is the Data Model structure
+		} else if (ops.layout.equals("accession")) {
+			// Use the accession number to formulate the output structure
+			w.add("layout-pattern", new String[]{"type", "dataset"},
+					"xpath(daris:dicom-dataset/object/de[@tag='00080050']/value)");
+		}
 		w.push("service", new String[] { "name", "daris.collection.archive.create" });
 		w.add("cid", ops.cid);
 		String where = "";
