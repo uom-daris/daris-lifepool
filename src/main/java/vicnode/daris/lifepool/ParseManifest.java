@@ -34,6 +34,7 @@ public class ParseManifest {
 	public static final String DESTROY_ARG = "-destroy";
 	public static final String NOLINK_ARG = "-no-link";
 	public static final String LAYOUT_ARG = "-layout";
+	public static final String ONESHOT_ARG = "-one";          // 1-use link
 
 	// This string must match argument "app" when generating the secure identity token
 	private static final String TOKEN_APP = "LifePool-Parser";
@@ -62,6 +63,7 @@ public class ParseManifest {
 		public Boolean destroy = false;
 		public Boolean noLink = false;
 		public String layout = "accession";
+		public Boolean oneShot = false;
 		//
 		public void print () {
 			System.out.println("ParseManifest Parameters");
@@ -72,6 +74,7 @@ public class ParseManifest {
 			System.out.println("layout             = " + layout);
 			System.out.println("debug              = " + debug);
 			System.out.println("no-link            = " + noLink);
+			System.out.println("one-shot            = " + oneShot);
 			System.out.println("destroy (token)    = " + destroy);
 			System.out.println("");
 		}
@@ -108,6 +111,8 @@ public class ParseManifest {
 				ops.destroy = true;
 			} else if (args[i].equalsIgnoreCase(NOLINK_ARG)) {
 				ops.noLink = true;
+			} else if (args[i].equalsIgnoreCase(ONESHOT_ARG)) {
+				ops.oneShot = true;
 			} else {
 				ops.print();
 				System.err.println("ParseManifest: error: unexpected argument = '" + args[i] + "'");
@@ -188,15 +193,16 @@ public class ParseManifest {
 	private static void printUsage() {
 
 		System.out.println("\n Usage: parse-manifest -help -cid <DaRIS Project CID>  -path <Manifest CSV file path> -count <days> -keep -debug -destroy \n");
-		System.out.println("   -cid     : The citeable ID of the LifePool DaRIS Project");
-		System.out.println("   -path    : The full path to the CSV manifest file");
-		System.out.println("   -count   : The number of days that the shareable link should remain active for (default 14).");
-		System.out.println("   -keep    : A parameter has been set - if the corresponding DICOM element is null don't consider this parameter for filtering (so keep the DataSet).");
-		System.out.println("              The default behaviour is that the DataSet is dropped when the DICOM element is null.\n");
-		System.out.println("   -layout  : Select the download layout pattern: 'standard' (data model), 'accession' (default - accession number as parent folder)");
-		System.out.println("   -no-link : Don't generate the shareable link");
-		System.out.println("   -destroy : Destroy the token generated with the shareable link (for testing)");
-		System.out.println("   -debug   : Turn on  extra printing.");
+		System.out.println("   -cid      : The citeable ID of the LifePool DaRIS Project");
+		System.out.println("   -path     : The full path to the CSV manifest file");
+		System.out.println("   -count    : The number of days that the shareable link should remain active for (default 14).");
+		System.out.println("   -one-shot : The shareable link can only be used once");
+		System.out.println("   -keep     : A parameter has been set - if the corresponding DICOM element is null don't consider this parameter for filtering (so keep the DataSet).");
+		System.out.println("               The default behaviour is that the DataSet is dropped when the DICOM element is null.\n");
+		System.out.println("   -layout   : Select the download layout pattern: 'standard' (data model), 'accession' (default - accession number as parent folder)");
+		System.out.println("   -no-link  : Don't generate the shareable link (used for testing)");
+		System.out.println("   -destroy  : Destroy the token generated with the shareable link (used for testing)");
+		System.out.println("   -debug    : Turn on  extra printing.");
 	} 
 
 	
@@ -638,6 +644,9 @@ public class ParseManifest {
 		// Bound usage of token 
 		if (ops.date!=null) {
 			w.add("to", ops.date);              // End date of use
+		}
+		if (ops.oneShot) {
+			w.add("use-count", "1");
 		}
 		w.add("tag", "daris-manifest-url-");
 
