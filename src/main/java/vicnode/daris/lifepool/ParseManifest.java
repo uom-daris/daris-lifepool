@@ -610,6 +610,8 @@ public class ParseManifest {
 		w.add("role", new String[] {"type", "role" }, guestRole);                   // LifePool project
 		w.add("role", new String[] {"type", "role"}, "user");                       // ACL on root namespace on VicNode system
 		// layout
+		w.push("service", new String[] { "name", "daris.collection.archive.create" });
+		w.add("cid", ops.cid);
 		if ((ops.layout).equals("standard")) {
 			// Nothing to do. The standard is the Data Model structure
 		} else if (ops.layout.equals("accession")) {
@@ -617,8 +619,6 @@ public class ParseManifest {
 			w.add("layout-pattern", new String[]{"type", "dataset"},
 					"xpath(daris:dicom-dataset/object/de[@tag='00080050']/value)");
 		}
-		w.push("service", new String[] { "name", "daris.collection.archive.create" });
-		w.add("cid", ops.cid);
 		String where = "";
 
 		// FOr a lot of IDs this would be cumbersome
