@@ -5,7 +5,8 @@
 set MF_HOST=mediaflux.vicnode.org.au
 set MF_PORT=443
 set MF_TRANSPORT=HTTPS
-set MF_TOKEN=***REMOVED***
+:: secure identity token
+set MF_TOKEN=XXXXXXXXXXXXXXXXXX
 set CID=1128.1.3
 set JAR=%~dp0daris-lifepool-parse-1.0-jar-with-dependencies.jar
 
